@@ -1,0 +1,232 @@
+-- Creación de tablas
+CREATE TABLE Customers (
+    Customer_ID INT AUTO_INCREMENT PRIMARY KEY,
+    Name VARCHAR(255) NOT NULL,
+    Address VARCHAR(255),
+    Phone VARCHAR(20),
+    Email VARCHAR(255) NOT NULL,
+    refered_by INT,
+    CONSTRAINT FK_refered_by_Customer_id FOREIGN KEY (refered_by) REFERENCES Customers(Customer_ID)
+);
+
+CREATE TABLE Products (
+    Product_ID INT AUTO_INCREMENT PRIMARY KEY,
+    Name VARCHAR(255) NOT NULL,
+    Description TEXT,
+    Price DECIMAL(10, 2) NOT NULL CHECK (Price >= 0),
+    Stock INT NOT NULL CHECK (Stock >= 0)
+);
+
+CREATE TABLE Operators (
+    Operator_ID INT AUTO_INCREMENT PRIMARY KEY,
+    Name VARCHAR(255) NOT NULL,
+    Shift VARCHAR(50),
+    Role VARCHAR(50)
+);
+
+CREATE TABLE Orders (
+    Order_ID INT AUTO_INCREMENT PRIMARY KEY,
+    Order_Date DATE NOT NULL,
+    Status VARCHAR(50) NOT NULL,
+    Customer_ID INT NOT NULL,
+    FOREIGN KEY (Customer_ID) REFERENCES Customers(Customer_ID) ON DELETE CASCADE
+);
+
+CREATE TABLE Picking (
+    Picking_ID INT AUTO_INCREMENT PRIMARY KEY,
+    Order_ID INT NOT NULL,
+    Picking_Date DATE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    Operator_ID INT NOT NULL,
+    FOREIGN KEY (Order_ID) REFERENCES Orders(Order_ID) ON DELETE CASCADE,
+    FOREIGN KEY (Operator_ID) REFERENCES Operators(Operator_ID)
+);
+
+CREATE TABLE Dispatches (
+    Dispatch_ID INT AUTO_INCREMENT PRIMARY KEY,
+    Order_ID INT NOT NULL,
+    Dispatch_Date DATE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    Operator_ID INT NOT NULL,
+    FOREIGN KEY (Order_ID) REFERENCES Orders(Order_ID) ON DELETE CASCADE,
+    FOREIGN KEY (Operator_ID) REFERENCES Operators(Operator_ID),
+    -- Eliminada la llave foránea de Picking_ID como solicitado
+);
+
+CREATE TABLE Order_Products (
+    Order_Product_ID INT AUTO_INCREMENT PRIMARY KEY,
+    Order_ID INT NOT NULL,
+    Product_ID INT NOT NULL,
+    Quantity INT NOT NULL,
+    FOREIGN KEY (Order_ID) REFERENCES Orders(Order_ID) ON DELETE CASCADE,
+    FOREIGN KEY (Product_ID) REFERENCES Products(Product_ID),
+    CONSTRAINT chk_quantity CHECK (Quantity > 0)
+);
+
+
+
+
+-- Alteraciones de tablas
+-- Agregar columna refered_by a Customers como llave foránea opcional
+ALTER TABLE Customers ADD COLUMN refered_by INT DEFAULT NULL,
+    ADD CONSTRAINT FK_refered_by_Customer_id FOREIGN KEY (refered_by) REFERENCES Customers(Customer_ID);
+
+-- Eliminar campo ID_Picking de la tabla Dispatches (era una llave foránea)
+ALTER TABLE Dispatches DROP COLUMN Order_ID;
+
+-- Cambiar nombre de columna Order_IDs a Order_ID en la tabla Picking (era una llave foránea)
+ALTER TABLE Picking CHANGE COLUMN Order_IDs Order_ID INT;
+
+-- Eliminar la columna status de la tabla Operators
+ALTER TABLE Operators DROP COLUMN Status;
+
+-- Cambiar nombre de la columna Emailed a Email en la tabla Customers
+ALTER TABLE Customers CHANGE COLUMN Emailed Email VARCHAR(255);
+
+-- Definir valor por defecto para Dispatch_Date en la tabla Dispatches
+ALTER TABLE Dispatches MODIFY COLUMN Dispatch_Date DATE DEFAULT CURRENT_TIMESTAMP;
+
+-- Restricción para que el precio y el stock no puedan ser valores negativos en la tabla Products (ya definida en la creación de tabla) 
+
+
+
+-- Inserción de datos de ejemplo
+INSERT INTO Customers (Name, Email) VALUES ('John Doe', 'john.doe@example.com');
+INSERT INTO Products (Name, Price, Stock) VALUES ('Product A', 100.00, 50);
+INSERT INTO Orders (Order_Date, Status, Customer_ID) VALUES ('2024-07-01', 'Pending', 1);
+
+-- Actualización de datos de ejemplo
+UPDATE Orders SET Status = 'Completed' WHERE Order_ID = 1;
+
+-- Eliminación de datos de ejemplo
+DELETE FROM Products WHERE Product_ID = 1 
+
+
+-- Consultas básicas y avanzadas
+
+-- Consulta básica con JOIN para obtener detalles de órdenes y clientes
+SELECT o.*, c.Name AS Customer_Name, c.Email AS Customer_Email
+FROM Orders o
+JOIN Customers c ON o.Customer_ID = c.Customer_ID;
+
+-- Consulta con JOIN y agregación para obtener el total de órdenes por cliente
+SELECT c.Customer_ID, c.Name, COUNT(o.Order_ID) AS Total_Orders
+FROM Customers c
+LEFT JOIN Orders o ON c.Customer_ID = o.Customer_ID
+GROUP BY c.Customer_ID, c.Name;
+
+-- Consulta para obtener los productos más vendidos ordenados descendentemente por cantidad
+SELECT op.Product_ID, p.Name AS Product_Name, SUM(op.Quantity) AS Total_Sold
+FROM Order_Products op
+JOIN Products p ON op.Product_ID = p.Product_ID
+GROUP BY op.Product_ID, p.Name
+ORDER BY Total_Sold DESC;
+
+-- Consulta con subconsulta para obtener despachos en los últimos 3 meses
+SELECT *
+FROM Dispatches
+WHERE Dispatch_Date >= DATE_SUB(CURDATE(), INTERVAL 3 MONTH);
+
+-- Consulta con JOIN y agregación para listar productos agrupados por cada orden en un solo string
+SELECT o.Order_ID, GROUP_CONCAT(p.Name ORDER BY op.Order_Product_ID SEPARATOR ', ') AS Products_List
+FROM Orders o
+JOIN Order_Products op ON o.Order_ID = op.Order_ID
+JOIN Products p ON op.Product_ID = p.Product_ID
+GROUP BY o.Order_ID;
+
+-- Consulta con subconsulta para encontrar clientes con más de 3 órdenes
+SELECT *
+FROM Customers
+WHERE Customer_ID IN (
+    SELECT Customer_ID
+    FROM Orders
+    GROUP BY Customer_ID
+    HAVING COUNT(*) > 3
+);
+
+-- Consulta para listar productos no vendidos
+SELECT *
+FROM Products
+WHERE Product_ID NOT IN (
+    SELECT DISTINCT op.Product_ID
+    FROM Order_Products op
+);
+
+-- Consulta para encontrar el cliente con el pedido de mayor valor
+SELECT c.Customer_ID, c.Name, MAX(SUM(p.Price * op.Quantity)) AS Max_Order_Value
+FROM Customers c
+JOIN Orders o ON c.Customer_ID = o.Customer_ID
+JOIN Order_Products op ON o.Order_ID = op.Order_ID
+JOIN Products p ON op.Product_ID = p.Product_ID
+GROUP BY c.Customer_ID, c.Name
+ORDER BY Max_Order_Value DESC
+LIMIT 1;
+
+-- Consulta para encontrar productos con precio superior al promedio
+SELECT *
+FROM Products
+WHERE Price > (SELECT AVG(Price) FROM Products);
+
+-- Consulta para encontrar el mes con más ventas y listar las órdenes realizadas en ese mes
+SELECT *
+FROM Orders
+WHERE MONTH(Order_Date) = (
+    SELECT MONTH(Order_Date)
+    FROM Orders
+    GROUP BY MONTH(Order_Date)
+    ORDER BY COUNT(*) DESC
+    LIMIT 1
+);
+
+-- Consulta para encontrar el operador con mayor número de pickings
+SELECT o.Operator_ID, o.Name, COUNT(p.Picking_ID) AS Total_Pickings
+FROM Operators o
+LEFT JOIN Picking p ON o.Operator_ID = p.Operator_ID
+GROUP BY o.Operator_ID, o.Name
+ORDER BY Total_Pickings DESC
+LIMIT 1;
+
+-- Consulta para obtener detalles de productos junto con el número de órdenes en las que están incluidos
+SELECT p.*, COUNT(op.Order_ID) AS Orders_Count
+FROM Products p
+LEFT JOIN Order_Products op ON p.Product_ID = op.Product_ID
+GROUP BY p.Product_ID;
+
+-- Consulta para listar todos los clientes y sus órdenes, incluyendo clientes sin órdenes
+SELECT c.*, COUNT(o.Order_ID) AS Total_Orders
+FROM Customers c
+LEFT JOIN Orders o ON c.Customer_ID = o.Customer_ID
+GROUP BY c.Customer_ID;
+
+-- Consulta para encontrar todos los clientes que han sido referidos por otros clientes
+SELECT *
+FROM Customers
+WHERE refered_by IS NOT NULL;
+
+-- Consulta para combinar listas de clientes y operadores, indicando el rol de cada uno
+SELECT Name, 'Customer' AS Role FROM Customers
+UNION
+SELECT Name, Role FROM Operators;
+
+-- Consulta para calcular el total de ventas por producto
+SELECT p.Product_ID, p.Name, SUM(p.Price * op.Quantity) AS Total_Sales
+FROM Products p
+JOIN Order_Products op ON p.Product_ID = op.Product_ID
+GROUP BY p.Product_ID, p.Name
+ORDER BY Total_Sales DESC;
+
+-- Consulta para encontrar productos que no han sido vendidos en los últimos tres meses
+SELECT p.*
+FROM Products p
+LEFT JOIN Order_Products op ON p.Product_ID = op.Product_ID
+LEFT JOIN Orders o ON op.Order_ID = o.Order_ID
+WHERE o.Order_ID IS NULL OR o.Order_Date < DATE_SUB(CURDATE(), INTERVAL 3 MONTH);
+
+-- Consulta para encontrar clientes con promedio de compras mayor a 500
+SELECT c.Customer_ID, c.Name, AVG(p.Price * op.Quantity) AS Average_Purchase
+FROM Customers c
+JOIN Orders o ON c.Customer_ID = o.Customer_ID
+JOIN Order_Products op ON o.Order_ID = op.Order_ID
+JOIN Products p ON op.Product_ID = p.Product_ID
+GROUP BY c.Customer_ID, c.Name
+HAVING Average_Purchase > 500;
+
+
